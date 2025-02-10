@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event to Calendar</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-8">
+    <div class="max-w-2xl mx-auto">
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <h1 class="text-2xl font-bold mb-4">Event to Calendar</h1>
+            
+            <div class="mb-4">
+                <label for="eventText" class="block text-sm font-medium text-gray-700 mb-2">
+                    Enter your events (one per line with time):
+                </label>
+                <textarea 
+                    id="eventText" 
+                    rows="10" 
+                    class="w-full p-2 border rounded-md"
+                    placeholder="February 17:&#10;Team meeting (10:00 AM - 11:00 AM)&#10;Lunch (12:00 PM - 1:00 PM)"></textarea>
+            </div>
+
+            <div class="flex justify-between">
+                <button 
+                    id="parseButton"
+                    onclick="parseEvents()" 
+                    class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200">
+                    <span class="normal-text">Parse Events</span>
+                    <span class="loading-text hidden">Parsing...</span>
+                </button>
+                <button 
+                    id="createButton"
+                    onclick="createEvents()" 
+                    class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200">
+                    <span class="normal-text">Create Calendar Events</span>
+                    <span class="loading-text hidden">Creating Events...</span>
+                </button>
+            </div>
+
+            <div id="result" class="mt-6">
+                <h2 class="text-lg font-semibold mb-2">Results:</h2>
+                <pre id="parsedEvents" class="bg-gray-50 p-4 rounded-md overflow-x-auto"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let parsedEventData = null;
+        const parseButton = document.getElementById('parseButton');
+        const createButton = document.getElementById('createButton');
+        const baseUrl = window.location.origin;
+
+        function setButtonLoading(button, isLoading) {
+            const normalText = button.querySelector('.normal-text');
+            const loadingText = button.querySelector('.loading-text');
+            button.disabled = isLoading;
+            if (isLoading) {
+                normalText.classList.add('hidden');
+                loadingText.classList.remove('hidden');
+            } else {
+                normalText.classList.remove('hidden');
+                loadingText.classList.add('hidden');
+            }
+        }
+
+        async function parseEvents() {
+            const text = document.getElementById('eventText').value;
+            setButtonLoading(parseButton, true);
+            setButtonLoading(createButton, true);
+            document.getElementById('parsedEvents').textContent = 'Parsing events...';
+            
+            try {
+                const response = await fetch(`${baseUrl}/parse`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text }),
+                });
+                
+                const data = await response.json();
+                parsedEventData = data;
+                document.getElementById('parsedEvents').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('parsedEvents').textContent = 'Error parsing events: ' + error.message;
+            } finally {
+                setButtonLoading(parseButton, false);
+                setButtonLoading(createButton, false);
+            }
+        }
+
+        async function createEvents() {
+            if (!parsedEventData) {
+                alert('Please parse events first');
+                return;
+            }
+
+            setButtonLoading(parseButton, true);
+            setButtonLoading(createButton, true);
+            document.getElementById('parsedEvents').textContent = 'Creating calendar events...';
+
+            try {
+                const response = await fetch(`${baseUrl}/create-events`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ events: parsedEventData }),
+                });
+                
+                const result = await response.json();
+                if (result.error) {
+                    if (result.needs_auth) {
+                        // Get authorization URL
+                        const authResponse = await fetch(`${baseUrl}/authorize`);
+                        const authData = await authResponse.json();
+                        // Open authorization URL in a new window
+                        window.open(authData.auth_url, '_blank');
+                        document.getElementById('parsedEvents').textContent = 'Please authorize the application in the new window and then try creating events again.';
+                        return;
+                    }
+                    throw new Error(result.error);
+                }
+                
+                document.getElementById('parsedEvents').textContent = 'Successfully created events!\n\n' + 
+                    JSON.stringify(result, null, 2);
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('parsedEvents').textContent = 'Error creating events: ' + error.message;
+            } finally {
+                setButtonLoading(parseButton, false);
+                setButtonLoading(createButton, false);
+            }
+        }
+    </script>
+</body>
+</html>
