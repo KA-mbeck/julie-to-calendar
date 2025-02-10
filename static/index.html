@@ -12,14 +12,14 @@
             <h1 class="text-2xl font-bold mb-4">Event to Calendar</h1>
             
             <div class="mb-4">
-                <label for="eventText" class="block text-sm font-medium text-gray-700 mb-2">
-                    Enter your events (one per line with time):
+                <label for="nameSelect" class="block text-sm font-medium text-gray-700 mb-2">
+                    Select a person:
                 </label>
-                <textarea 
-                    id="eventText" 
-                    rows="10" 
-                    class="w-full p-2 border rounded-md"
-                    placeholder="February 17:&#10;Team meeting (10:00 AM - 11:00 AM)&#10;Lunch (12:00 PM - 1:00 PM)"></textarea>
+                <select 
+                    id="nameSelect" 
+                    class="w-full p-2 border rounded-md">
+                    <option value="">Select a name...</option>
+                </select>
             </div>
 
             <div class="flex justify-between">
@@ -27,21 +27,67 @@
                     id="parseButton"
                     onclick="parseEvents()" 
                     class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200">
-                    <span class="normal-text">Parse Events</span>
-                    <span class="loading-text hidden">Parsing...</span>
-                </button>
-                <button 
-                    id="createButton"
-                    onclick="createEvents()" 
-                    class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200">
-                    <span class="normal-text">Create Calendar Events</span>
-                    <span class="loading-text hidden">Creating Events...</span>
+                    <span class="normal-text">Show Events</span>
+                    <span class="loading-text hidden">Loading...</span>
                 </button>
             </div>
 
             <div id="result" class="mt-6">
-                <h2 class="text-lg font-semibold mb-2">Results:</h2>
-                <pre id="parsedEvents" class="bg-gray-50 p-4 rounded-md overflow-x-auto"></pre>
+                <h2 class="text-lg font-semibold mb-2">Events:</h2>
+                <div id="parsedEvents" class="bg-gray-50 p-4 rounded-md"></div>
+            </div>
+
+            <!-- Calendar Selection -->
+            <div id="calendarSection" class="border-t pt-4 mt-4" style="display: none;">
+                <h2 class="text-lg font-semibold mb-4">Choose Calendar</h2>
+                
+                <!-- Existing Calendar Selection -->
+                <div class="mb-4">
+                    <label for="calendarSelect" class="block text-sm font-medium text-gray-700 mb-2">
+                        Select existing calendar:
+                    </label>
+                    <select 
+                        id="calendarSelect" 
+                        class="w-full p-2 border rounded-md mb-2">
+                        <option value="">Select a calendar...</option>
+                    </select>
+                </div>
+
+                <!-- Create New Calendar -->
+                <div class="mb-4">
+                    <div class="flex items-center">
+                        <hr class="flex-grow border-gray-300">
+                        <span class="px-3 text-gray-500 text-sm">OR</span>
+                        <hr class="flex-grow border-gray-300">
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label for="newCalendarName" class="block text-sm font-medium text-gray-700 mb-2">
+                        Create new calendar:
+                    </label>
+                    <div class="flex gap-2">
+                        <input 
+                            type="text" 
+                            id="newCalendarName" 
+                            placeholder="Enter calendar name"
+                            class="flex-grow p-2 border rounded-md">
+                        <button 
+                            onclick="createNewCalendar()"
+                            class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                            Create
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Create Events Button -->
+                <button 
+                    id="createButton"
+                    onclick="createEvents()" 
+                    class="w-full bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200">
+                    <span class="normal-text">Create Calendar Events</span>
+                    <span class="loading-text hidden">Creating Events...</span>
+                </button>
             </div>
         </div>
     </div>
@@ -50,7 +96,30 @@
         let parsedEventData = null;
         const parseButton = document.getElementById('parseButton');
         const createButton = document.getElementById('createButton');
+        const nameSelect = document.getElementById('nameSelect');
+        const calendarSelect = document.getElementById('calendarSelect');
         const baseUrl = window.location.origin;
+
+        // Load names when page loads
+        window.addEventListener('load', loadNames);
+
+        async function loadNames() {
+            try {
+                const response = await fetch(`${baseUrl}/get-names`);
+                const names = await response.json();
+                
+                // Populate the dropdown
+                names.forEach(name => {
+                    const option = document.createElement('option');
+                    option.value = name;
+                    option.textContent = name;
+                    nameSelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading names:', error);
+                alert('Error loading names from CSV file');
+            }
+        }
 
         function setButtonLoading(button, isLoading) {
             const normalText = button.querySelector('.normal-text');
@@ -65,11 +134,113 @@
             }
         }
 
+        function formatEvent(event) {
+            const start = new Date(event.start.dateTime);
+            const end = new Date(event.end.dateTime);
+            const formatTime = (date) => date.toLocaleTimeString('en-US', { 
+                hour: 'numeric', 
+                minute: '2-digit',
+                hour12: true 
+            });
+            return `
+                <div class="border-b border-gray-200 py-2 last:border-b-0">
+                    <div class="font-medium">${event.summary}</div>
+                    <div class="text-sm text-gray-600">
+                        ${start.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+                        ${formatTime(start)} - ${formatTime(end)}
+                    </div>
+                </div>
+            `;
+        }
+
+        async function loadCalendars() {
+            try {
+                const response = await fetch(`${baseUrl}/get-calendars`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    if (data.needs_auth) {
+                        const authResponse = await fetch(`${baseUrl}/authorize`);
+                        const authData = await authResponse.json();
+                        window.open(authData.auth_url, '_blank');
+                        return;
+                    }
+                    throw new Error(data.error);
+                }
+                
+                // Clear existing options except the first one
+                while (calendarSelect.options.length > 1) {
+                    calendarSelect.remove(1);
+                }
+                
+                // Add calendars to dropdown
+                data.forEach(calendar => {
+                    const option = document.createElement('option');
+                    option.value = calendar.id;
+                    option.textContent = calendar.summary + (calendar.primary ? ' (Primary)' : '');
+                    calendarSelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading calendars:', error);
+                alert('Error loading calendars. Please try again.');
+            }
+        }
+
+        async function createNewCalendar() {
+            const nameInput = document.getElementById('newCalendarName');
+            const name = nameInput.value.trim();
+            
+            if (!name) {
+                alert('Please enter a calendar name');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${baseUrl}/create-calendar`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ name: name }),
+                });
+                
+                const data = await response.json();
+                if (data.error) {
+                    if (data.needs_auth) {
+                        const authResponse = await fetch(`${baseUrl}/authorize`);
+                        const authData = await authResponse.json();
+                        window.open(authData.auth_url, '_blank');
+                        return;
+                    }
+                    throw new Error(data.error);
+                }
+                
+                // Add new calendar to dropdown and select it
+                const option = document.createElement('option');
+                option.value = data.id;
+                option.textContent = data.summary;
+                calendarSelect.appendChild(option);
+                calendarSelect.value = data.id;
+                
+                // Clear input
+                nameInput.value = '';
+                
+                alert('Calendar created successfully!');
+            } catch (error) {
+                console.error('Error creating calendar:', error);
+                alert('Error creating calendar. Please try again.');
+            }
+        }
+
         async function parseEvents() {
-            const text = document.getElementById('eventText').value;
+            const selectedName = nameSelect.value;
+            if (!selectedName) {
+                alert('Please select a name first');
+                return;
+            }
+
             setButtonLoading(parseButton, true);
-            setButtonLoading(createButton, true);
-            document.getElementById('parsedEvents').textContent = 'Parsing events...';
+            document.getElementById('parsedEvents').innerHTML = '<div class="text-gray-600">Loading events...</div>';
             
             try {
                 const response = await fetch(`${baseUrl}/parse`, {
@@ -77,30 +248,47 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ text }),
+                    body: JSON.stringify({ selected_name: selectedName }),
                 });
                 
                 const data = await response.json();
                 parsedEventData = data;
-                document.getElementById('parsedEvents').textContent = JSON.stringify(data, null, 2);
+                
+                if (data.length === 0) {
+                    document.getElementById('parsedEvents').innerHTML = 
+                        '<div class="text-gray-600">No events found for this person</div>';
+                    document.getElementById('calendarSection').style.display = 'none';
+                } else {
+                    document.getElementById('parsedEvents').innerHTML = 
+                        data.map(formatEvent).join('');
+                    document.getElementById('calendarSection').style.display = 'block';
+                    // Load calendars when events are found
+                    await loadCalendars();
+                }
             } catch (error) {
                 console.error('Error:', error);
-                document.getElementById('parsedEvents').textContent = 'Error parsing events: ' + error.message;
+                document.getElementById('parsedEvents').innerHTML = 
+                    `<div class="text-red-600">Error loading events: ${error.message}</div>`;
             } finally {
                 setButtonLoading(parseButton, false);
-                setButtonLoading(createButton, false);
             }
         }
 
         async function createEvents() {
-            if (!parsedEventData) {
-                alert('Please parse events first');
+            if (!parsedEventData || parsedEventData.length === 0) {
+                alert('Please load events first');
                 return;
             }
 
-            setButtonLoading(parseButton, true);
+            const selectedCalendarId = calendarSelect.value;
+            if (!selectedCalendarId) {
+                alert('Please select or create a calendar first');
+                return;
+            }
+
             setButtonLoading(createButton, true);
-            document.getElementById('parsedEvents').textContent = 'Creating calendar events...';
+            document.getElementById('parsedEvents').innerHTML = 
+                '<div class="text-gray-600">Creating calendar events...</div>';
 
             try {
                 const response = await fetch(`${baseUrl}/create-events`, {
@@ -108,30 +296,33 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ events: parsedEventData }),
+                    body: JSON.stringify({ 
+                        events: parsedEventData,
+                        calendarId: selectedCalendarId
+                    }),
                 });
                 
                 const result = await response.json();
                 if (result.error) {
                     if (result.needs_auth) {
-                        // Get authorization URL
                         const authResponse = await fetch(`${baseUrl}/authorize`);
                         const authData = await authResponse.json();
-                        // Open authorization URL in a new window
                         window.open(authData.auth_url, '_blank');
-                        document.getElementById('parsedEvents').textContent = 'Please authorize the application in the new window and then try creating events again.';
+                        document.getElementById('parsedEvents').innerHTML = 
+                            '<div class="text-blue-600">Please authorize the application in the new window and then try creating events again.</div>';
                         return;
                     }
                     throw new Error(result.error);
                 }
                 
-                document.getElementById('parsedEvents').textContent = 'Successfully created events!\n\n' + 
-                    JSON.stringify(result, null, 2);
+                document.getElementById('parsedEvents').innerHTML = 
+                    '<div class="text-green-600">Successfully created events!</div>' +
+                    '<div class="mt-2 text-sm text-gray-600">Check your Google Calendar to see the new events.</div>';
             } catch (error) {
                 console.error('Error:', error);
-                document.getElementById('parsedEvents').textContent = 'Error creating events: ' + error.message;
+                document.getElementById('parsedEvents').innerHTML = 
+                    `<div class="text-red-600">Error creating events: ${error.message}</div>`;
             } finally {
-                setButtonLoading(parseButton, false);
                 setButtonLoading(createButton, false);
             }
         }

@@ -11,10 +11,17 @@ import re
 from dateutil import parser
 import secrets
 import base64
+import pandas as pd
+import logging
 
 app = Flask(__name__, static_folder='static')
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', secrets.token_hex(16))
 CORS(app)
+
+# Configure logging
+import sys
+app.logger.addHandler(logging.StreamHandler(sys.stdout))
+app.logger.setLevel(logging.DEBUG)
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -73,87 +80,186 @@ def get_credentials():
     
     return creds
 
-def parse_events(text):
-    events = []
-    lines = text.strip().split('\n')
-    current_date = None
-    
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-            
-        # Check for date headers (e.g., "February 17:")
-        date_match = re.match(r'(?i)(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?::|$)', line)
-        if date_match:
-            month = date_match.group(1)
-            day = int(date_match.group(2))
-            # Use current year since it's not specified
-            current_date = datetime.datetime.strptime(f"{month} {day} 2025", "%B %d %Y")
-            continue
-            
-        # Look for time patterns
-        time_pattern = r'(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)'
-        times = re.findall(time_pattern, line)
+@app.route('/get-names', methods=['GET'])
+def get_names():
+    try:
+        print("Reading CSV file for names")
+        df = pd.read_csv('Staff_Schedule.csv', dtype=str)
+        print(f"CSV columns: {df.columns.tolist()}")
         
-        if times and current_date:
-            # Extract event description (remove the time parts)
-            description = re.split(time_pattern, line)[0].strip()
-            if description.endswith('(') or description.endswith('-'):
-                description = description[:-1].strip()
-            
-            # Parse start time
-            start_hour = int(times[0][0])
-            start_minute = int(times[0][1])
-            start_meridian = times[0][2].upper()
-            
-            if start_meridian == 'PM' and start_hour != 12:
-                start_hour += 12
-            elif start_meridian == 'AM' and start_hour == 12:
-                start_hour = 0
-                
-            start_time = current_date.replace(hour=start_hour, minute=start_minute)
-            
-            # Parse end time if available
-            end_time = None
-            if len(times) > 1:
-                end_hour = int(times[1][0])
-                end_minute = int(times[1][1])
-                end_meridian = times[1][2].upper()
-                
-                if end_meridian == 'PM' and end_hour != 12:
-                    end_hour += 12
-                elif end_meridian == 'AM' and end_hour == 12:
-                    end_hour = 0
+        # Get all column names
+        all_columns = df.columns.tolist()
+        
+        # Exclude non-name columns and empty columns
+        exclude_columns = ['Date', 'Start Time', 'End Time', 'Session/Title/Event Name', 'Meeting Room', '']
+        names = [col for col in all_columns if col not in exclude_columns and col.strip()]
+        
+        print(f"Found {len(names)} names: {names}")
+        return jsonify(names)
+    except Exception as e:
+        print(f"Error getting names: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        return jsonify([])
+
+def parse_events_from_csv(selected_name):
+    events = []
+    try:
+        print(f"Reading CSV file for {selected_name}")
+        # Read the CSV file
+        df = pd.read_csv('Staff_Schedule.csv', dtype=str)
+        print(f"CSV columns: {df.columns.tolist()}")
+        
+        # Clean up the data
+        df = df.fillna('')
+        df[selected_name] = df[selected_name].fillna('').str.strip()
+        
+        # Filter rows where the selected name has any non-empty value
+        print(f"Checking column {selected_name} for values")
+        person_events = df[df[selected_name].str.len() > 0].copy()
+        print(f"Found {len(person_events)} events for {selected_name}")
+        
+        if len(person_events) == 0:
+            print(f"Sample of values in {selected_name} column: {df[selected_name].head()}")
+            return []
+        
+        # Convert date strings to datetime
+        person_events['Date'] = pd.to_datetime(person_events['Date'], format='%m/%d')
+        # Set the year to current year
+        current_year = 2025
+        person_events['Date'] = person_events['Date'].apply(lambda x: x.replace(year=current_year) if pd.notna(x) else None)
+        
+        for _, row in person_events.iterrows():
+            try:
+                print(f"Processing event: {row['Session/Title/Event Name']}")
+                # Skip rows without a start time or event name
+                if not row['Start Time'] or not row['Session/Title/Event Name']:
+                    print(f"Skipping event due to missing start time or event name")
+                    continue
                     
-                end_time = current_date.replace(hour=end_hour, minute=end_minute)
-            else:
-                # Default to 1 hour duration if no end time specified
-                end_time = start_time + datetime.timedelta(hours=1)
-            
-            event = {
-                "summary": description,
-                "start": {
-                    "dateTime": start_time.strftime("%Y-%m-%dT%H:%M:%S"),
-                    "timeZone": "America/New_York"
-                },
-                "end": {
-                    "dateTime": end_time.strftime("%Y-%m-%dT%H:%M:%S"),
-                    "timeZone": "America/New_York"
+                # Parse the date
+                event_date = row['Date']
+                if pd.isna(event_date):
+                    print(f"Skipping event due to invalid date")
+                    continue
+                
+                # Parse start time
+                start_time = pd.to_datetime(row['Start Time'], format='%I:%M %p', errors='coerce')
+                if pd.isna(start_time):
+                    start_time = pd.to_datetime(row['Start Time'], format='%H:%M', errors='coerce')
+                if pd.isna(start_time):
+                    start_time = pd.to_datetime(row['Start Time'], format='%I:%M%p', errors='coerce')
+                if pd.isna(start_time):
+                    print(f"Could not parse start time: {row['Start Time']}")
+                    continue
+                    
+                # Parse end time (if available)
+                end_time = None
+                if row['End Time'].strip():
+                    end_time = pd.to_datetime(row['End Time'], format='%I:%M %p', errors='coerce')
+                    if pd.isna(end_time):
+                        end_time = pd.to_datetime(row['End Time'], format='%H:%M', errors='coerce')
+                    if pd.isna(end_time):
+                        end_time = pd.to_datetime(row['End Time'], format='%I:%M%p', errors='coerce')
+                
+                # If no end time specified, make it 1 hour after start
+                if pd.isna(end_time):
+                    end_time = start_time + pd.Timedelta(hours=1)
+                
+                # Combine date with times
+                start_datetime = pd.Timestamp.combine(event_date.date(), start_time.time())
+                end_datetime = pd.Timestamp.combine(event_date.date(), end_time.time())
+                
+                # Create event summary with room if available
+                summary = row['Session/Title/Event Name']
+                if row['Meeting Room'].strip():
+                    summary += f" (Room: {row['Meeting Room']})"
+                
+                event = {
+                    "summary": summary,
+                    "start": {
+                        "dateTime": start_datetime.strftime("%Y-%m-%dT%H:%M:%S"),
+                        "timeZone": "America/New_York"
+                    },
+                    "end": {
+                        "dateTime": end_datetime.strftime("%Y-%m-%dT%H:%M:%S"),
+                        "timeZone": "America/New_York"
+                    }
                 }
-            }
-            events.append(event)
+                events.append(event)
+                print(f"Added event: {summary}")
+            except Exception as e:
+                print(f"Error processing event: {str(e)}")
+                continue
+            
+    except Exception as e:
+        print(f"Error parsing CSV: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        return []
     
+    print(f"Total events found: {len(events)}")
     return events
 
 @app.route('/parse', methods=['POST'])
 def parse_text():
     data = request.json
-    if not data or 'text' not in data:
-        return jsonify({"error": "No text provided"}), 400
+    if not data or 'selected_name' not in data:
+        return jsonify({"error": "No name selected"}), 400
     
-    events = parse_events(data['text'])
+    events = parse_events_from_csv(data['selected_name'])
     return jsonify(events)
+
+@app.route('/get-calendars')
+def get_calendars():
+    try:
+        creds = get_credentials()
+        if not creds:
+            return jsonify({"error": "Not authorized", "needs_auth": True}), 401
+            
+        service = build('calendar', 'v3', credentials=creds)
+        
+        # Get list of calendars
+        calendar_list = service.calendarList().list().execute()
+        calendars = []
+        for calendar_list_entry in calendar_list['items']:
+            calendars.append({
+                'id': calendar_list_entry['id'],
+                'summary': calendar_list_entry['summary'],
+                'primary': calendar_list_entry.get('primary', False)
+            })
+        
+        return jsonify(calendars)
+    except Exception as e:
+        app.logger.error(f"Error getting calendars: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/create-calendar', methods=['POST'])
+def create_calendar():
+    try:
+        creds = get_credentials()
+        if not creds:
+            return jsonify({"error": "Not authorized", "needs_auth": True}), 401
+            
+        service = build('calendar', 'v3', credentials=creds)
+        
+        data = request.json
+        if not data or 'name' not in data:
+            return jsonify({"error": "Calendar name is required"}), 400
+            
+        calendar = {
+            'summary': data['name'],
+            'timeZone': 'America/New_York'
+        }
+        
+        created_calendar = service.calendars().insert(body=calendar).execute()
+        return jsonify({
+            'id': created_calendar['id'],
+            'summary': created_calendar['summary']
+        })
+    except Exception as e:
+        app.logger.error(f"Error creating calendar: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/create-events', methods=['POST'])
 def create_calendar_events():
@@ -165,13 +271,13 @@ def create_calendar_events():
         service = build('calendar', 'v3', credentials=creds)
         
         data = request.json
-        if not data or 'events' not in data:
-            return jsonify({"error": "No events provided"}), 400
+        if not data or 'events' not in data or 'calendarId' not in data:
+            return jsonify({"error": "Events and calendar ID are required"}), 400
         
         created_events = []
         for event in data['events']:
             created_event = service.events().insert(
-                calendarId='primary',
+                calendarId=data['calendarId'],
                 body=event
             ).execute()
             created_events.append(created_event)
@@ -179,6 +285,7 @@ def create_calendar_events():
         return jsonify({"message": f"Created {len(created_events)} events", "events": created_events})
     
     except Exception as e:
+        app.logger.error(f"Error creating events: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/')

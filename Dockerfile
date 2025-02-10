@@ -9,7 +9,8 @@ RUN apt-get update && apt-get install -y \
 
 # Install Python packages
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir numpy==1.23.5 && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
@@ -23,4 +24,4 @@ EXPOSE 5000 8080
 ENV FLASK_APP=app.py
 ENV FLASK_ENV=development
 
-CMD ["flask", "run", "--host=0.0.0.0"]
+CMD ["python", "-m", "flask", "run", "--host=0.0.0.0"]
