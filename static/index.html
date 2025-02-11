@@ -100,8 +100,40 @@
         const calendarSelect = document.getElementById('calendarSelect');
         const baseUrl = window.location.origin;
 
-        // Load names when page loads
-        window.addEventListener('load', loadNames);
+        // Initialize when page loads
+        window.addEventListener('load', async () => {
+            // Check if we're returning from authorization
+            if (sessionStorage.getItem('returnToCalendars')) {
+                sessionStorage.removeItem('returnToCalendars');
+                await loadCalendars();
+            }
+            await loadNames();
+        });
+
+        async function checkAuthAndProceed() {
+            try {
+                // Check calendar access first
+                const response = await fetch(`${baseUrl}/get-calendars`);
+                const data = await response.json();
+                
+                if (data.error && data.needs_auth) {
+                    // Need authorization
+                    const authResponse = await fetch(`${baseUrl}/authorize`);
+                    const authData = await authResponse.json();
+                    window.open(authData.auth_url, '_blank');
+                    return;
+                }
+                
+                // We're authorized, load everything
+                await Promise.all([
+                    loadNames(),
+                    loadCalendars()
+                ]);
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error loading application. Please refresh the page.');
+            }
+        }
 
         async function loadNames() {
             try {
@@ -162,7 +194,11 @@
                     if (data.needs_auth) {
                         const authResponse = await fetch(`${baseUrl}/authorize`);
                         const authData = await authResponse.json();
+                        // Store the current page state
+                        sessionStorage.setItem('returnToCalendars', 'true');
                         window.open(authData.auth_url, '_blank');
+                        alert('Please complete authorization in the popup window and then click OK to continue.');
+                        window.location.reload();
                         return;
                     }
                     throw new Error(data.error);
@@ -180,6 +216,11 @@
                     option.textContent = calendar.summary + (calendar.primary ? ' (Primary)' : '');
                     calendarSelect.appendChild(option);
                 });
+
+                // Show calendar section if we have events
+                if (parsedEventData) {
+                    document.getElementById('calendarSection').style.display = 'block';
+                }
             } catch (error) {
                 console.error('Error loading calendars:', error);
                 alert('Error loading calendars. Please try again.');
