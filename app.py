@@ -13,9 +13,14 @@ import secrets
 import base64
 import pandas as pd
 import logging
+from flask_session import Session
 
 app = Flask(__name__, static_folder='static')
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', secrets.token_hex(16))
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', secrets.token_hex(32))
+# Configure session to use filesystem
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(minutes=60)
+Session(app)  # Initialize Flask-Session
 CORS(app)
 
 # Configure logging
@@ -71,9 +76,15 @@ def oauth2callback():
         else:
             app.logger.info("Refresh token present")
         
-        app.logger.info("Saving credentials to token.json...")
-        with open('token.json', 'w') as token:
-            token.write(credentials.to_json())
+        # Store credentials in session instead of file
+        session['credentials'] = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
+        }
         
         return 'Authorization successful! You can close this window and return to the application.'
     except Exception as e:
@@ -83,15 +94,24 @@ def oauth2callback():
         return f'Authorization failed: {str(e)}'
 
 def get_credentials():
-    creds = None
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if 'credentials' not in session:
+        return None
+        
+    creds_data = session['credentials']
+    creds = Credentials(
+        token=creds_data['token'],
+        refresh_token=creds_data['refresh_token'],
+        token_uri=creds_data['token_uri'],
+        client_id=creds_data['client_id'],
+        client_secret=creds_data['client_secret'],
+        scopes=creds_data['scopes']
+    )
     
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            with open('token.json', 'w') as token:
-                token.write(creds.to_json())
+            # Update session with new token
+            session['credentials']['token'] = creds.token
         else:
             return None
     
