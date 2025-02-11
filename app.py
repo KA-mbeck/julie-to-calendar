@@ -215,14 +215,20 @@ def parse_text():
 @app.route('/get-calendars')
 def get_calendars():
     try:
+        app.logger.info("Getting credentials...")
         creds = get_credentials()
         if not creds:
+            app.logger.error("No credentials found")
             return jsonify({"error": "Not authorized", "needs_auth": True}), 401
             
+        app.logger.info("Building calendar service...")
         service = build('calendar', 'v3', credentials=creds)
         
         # Get list of calendars
+        app.logger.info("Fetching calendar list...")
         calendar_list = service.calendarList().list().execute()
+        app.logger.info(f"Found {len(calendar_list.get('items', []))} calendars")
+        
         calendars = []
         for calendar_list_entry in calendar_list['items']:
             calendars.append({
@@ -234,6 +240,8 @@ def get_calendars():
         return jsonify(calendars)
     except Exception as e:
         app.logger.error(f"Error getting calendars: {str(e)}")
+        import traceback
+        app.logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 @app.route('/create-calendar', methods=['POST'])
