@@ -9,8 +9,7 @@ RUN apt-get update && apt-get install -y \
 
 # Install Python packages
 COPY requirements.txt .
-RUN pip install --no-cache-dir numpy==1.23.5 && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
@@ -19,9 +18,11 @@ COPY . .
 RUN mkdir -p static
 
 # Expose both the main app port and OAuth callback port
-EXPOSE 5000 8080
+EXPOSE 5000
 
+# Set environment variables
 ENV FLASK_APP=app.py
-ENV FLASK_ENV=development
+ENV FLASK_ENV=production
+ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "-m", "flask", "run", "--host=0.0.0.0"]
+CMD ["python", "app.py"]
