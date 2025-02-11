@@ -111,7 +111,18 @@
                 const authResponse = await fetch(`${baseUrl}/authorize`);
                 const authData = await authResponse.json();
                 authWindowOpen = true;
-                const authWindow = window.open(authData.auth_url, '_blank');
+                
+                // Calculate centered position for popup
+                const width = 600;
+                const height = 700;
+                const left = (window.screen.width - width) / 2;
+                const top = (window.screen.height - height) / 2;
+                
+                const authWindow = window.open(
+                    authData.auth_url,
+                    'OAuth2',
+                    `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no`
+                );
                 
                 // Check if window was blocked
                 if (!authWindow) {
@@ -120,13 +131,21 @@
                     return;
                 }
 
-                // Reset flag after 1 minute or if window closes
-                setTimeout(() => { authWindowOpen = false; }, 60000);
-                if (authWindow) {
-                    authWindow.addEventListener('beforeunload', () => {
+                // Poll for window close
+                const checkClosed = setInterval(async () => {
+                    if (authWindow.closed) {
+                        clearInterval(checkClosed);
                         authWindowOpen = false;
-                    });
-                }
+                        // Try loading calendars after auth window closes
+                        await loadCalendars();
+                    }
+                }, 500);
+
+                // Backup timeout to reset flag
+                setTimeout(() => {
+                    clearInterval(checkClosed);
+                    authWindowOpen = false;
+                }, 300000); // 5 minutes
             } catch (error) {
                 authWindowOpen = false;
                 console.error('Auth error:', error);
