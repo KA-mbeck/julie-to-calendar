@@ -94,6 +94,7 @@
 
     <script>
         let parsedEventData = null;
+        let authWindowOpen = false;  // Track if auth window is open
         const parseButton = document.getElementById('parseButton');
         const createButton = document.getElementById('createButton');
         const nameSelect = document.getElementById('nameSelect');
@@ -101,37 +102,72 @@
         const baseUrl = window.location.origin;
 
         // Initialize when page loads
-        window.addEventListener('load', async () => {
-            // Check if we're returning from authorization
-            if (sessionStorage.getItem('returnToCalendars')) {
-                sessionStorage.removeItem('returnToCalendars');
-                await loadCalendars();
-            }
-            await loadNames();
-        });
+        window.addEventListener('load', loadNames);
 
-        async function checkAuthAndProceed() {
+        async function handleAuth() {
+            if (authWindowOpen) return;  // Prevent multiple auth windows
+            
             try {
-                // Check calendar access first
+                const authResponse = await fetch(`${baseUrl}/authorize`);
+                const authData = await authResponse.json();
+                authWindowOpen = true;
+                const authWindow = window.open(authData.auth_url, '_blank');
+                
+                // Check if window was blocked
+                if (!authWindow) {
+                    authWindowOpen = false;
+                    alert('Please allow popups for this site and try again.');
+                    return;
+                }
+
+                // Reset flag after 1 minute or if window closes
+                setTimeout(() => { authWindowOpen = false; }, 60000);
+                if (authWindow) {
+                    authWindow.addEventListener('beforeunload', () => {
+                        authWindowOpen = false;
+                    });
+                }
+            } catch (error) {
+                authWindowOpen = false;
+                console.error('Auth error:', error);
+            }
+        }
+
+        async function loadCalendars() {
+            try {
                 const response = await fetch(`${baseUrl}/get-calendars`);
                 const data = await response.json();
                 
-                if (data.error && data.needs_auth) {
-                    // Need authorization
-                    const authResponse = await fetch(`${baseUrl}/authorize`);
-                    const authData = await authResponse.json();
-                    window.open(authData.auth_url, '_blank');
-                    return;
+                if (data.error) {
+                    if (data.needs_auth && !authWindowOpen) {
+                        await handleAuth();
+                        return;
+                    }
+                    throw new Error(data.error);
                 }
                 
-                // We're authorized, load everything
-                await Promise.all([
-                    loadNames(),
-                    loadCalendars()
-                ]);
+                // Clear existing options except the first one
+                while (calendarSelect.options.length > 1) {
+                    calendarSelect.remove(1);
+                }
+                
+                // Add calendars to dropdown
+                data.forEach(calendar => {
+                    const option = document.createElement('option');
+                    option.value = calendar.id;
+                    option.textContent = calendar.summary + (calendar.primary ? ' (Primary)' : '');
+                    calendarSelect.appendChild(option);
+                });
+
+                // Show calendar section if we have events
+                if (parsedEventData) {
+                    document.getElementById('calendarSection').style.display = 'block';
+                }
             } catch (error) {
-                console.error('Error:', error);
-                alert('Error loading application. Please refresh the page.');
+                console.error('Error loading calendars:', error);
+                if (!error.message.includes('Not authorized')) {
+                    alert('Error loading calendars. Please try again.');
+                }
             }
         }
 
@@ -185,94 +221,6 @@
             `;
         }
 
-        async function loadCalendars() {
-            try {
-                const response = await fetch(`${baseUrl}/get-calendars`);
-                const data = await response.json();
-                
-                if (data.error) {
-                    if (data.needs_auth) {
-                        const authResponse = await fetch(`${baseUrl}/authorize`);
-                        const authData = await authResponse.json();
-                        // Store the current page state
-                        sessionStorage.setItem('returnToCalendars', 'true');
-                        window.open(authData.auth_url, '_blank');
-                        alert('Please complete authorization in the popup window and then click OK to continue.');
-                        window.location.reload();
-                        return;
-                    }
-                    throw new Error(data.error);
-                }
-                
-                // Clear existing options except the first one
-                while (calendarSelect.options.length > 1) {
-                    calendarSelect.remove(1);
-                }
-                
-                // Add calendars to dropdown
-                data.forEach(calendar => {
-                    const option = document.createElement('option');
-                    option.value = calendar.id;
-                    option.textContent = calendar.summary + (calendar.primary ? ' (Primary)' : '');
-                    calendarSelect.appendChild(option);
-                });
-
-                // Show calendar section if we have events
-                if (parsedEventData) {
-                    document.getElementById('calendarSection').style.display = 'block';
-                }
-            } catch (error) {
-                console.error('Error loading calendars:', error);
-                alert('Error loading calendars. Please try again.');
-            }
-        }
-
-        async function createNewCalendar() {
-            const nameInput = document.getElementById('newCalendarName');
-            const name = nameInput.value.trim();
-            
-            if (!name) {
-                alert('Please enter a calendar name');
-                return;
-            }
-            
-            try {
-                const response = await fetch(`${baseUrl}/create-calendar`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ name: name }),
-                });
-                
-                const data = await response.json();
-                if (data.error) {
-                    if (data.needs_auth) {
-                        const authResponse = await fetch(`${baseUrl}/authorize`);
-                        const authData = await authResponse.json();
-                        window.open(authData.auth_url, '_blank');
-                        return;
-                    }
-                    throw new Error(data.error);
-                }
-                
-                // Add new calendar to dropdown and select it
-                const option = document.createElement('option');
-                option.value = data.id;
-                option.textContent = data.summary;
-                calendarSelect.appendChild(option);
-                calendarSelect.value = data.id;
-                
-                // Clear input
-                nameInput.value = '';
-                
-                alert('Calendar created successfully!');
-            } catch (error) {
-                console.error('Error creating calendar:', error);
-                alert('Error creating calendar. Please try again.');
-            }
-        }
-
         async function parseEvents() {
             const selectedName = nameSelect.value;
             if (!selectedName) {
@@ -315,6 +263,50 @@
             }
         }
 
+        async function createNewCalendar() {
+            const nameInput = document.getElementById('newCalendarName');
+            const name = nameInput.value.trim();
+            
+            if (!name) {
+                alert('Please enter a calendar name');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${baseUrl}/create-calendar`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ name: name }),
+                });
+                
+                const data = await response.json();
+                if (data.error) {
+                    if (data.needs_auth) {
+                        await handleAuth();
+                        return;
+                    }
+                    throw new Error(data.error);
+                }
+                
+                // Add new calendar to dropdown and select it
+                const option = document.createElement('option');
+                option.value = data.id;
+                option.textContent = data.summary;
+                calendarSelect.appendChild(option);
+                calendarSelect.value = data.id;
+                
+                // Clear input
+                nameInput.value = '';
+                
+                alert('Calendar created successfully!');
+            } catch (error) {
+                console.error('Error creating calendar:', error);
+                alert('Error creating calendar. Please try again.');
+            }
+        }
+
         async function createEvents() {
             if (!parsedEventData || parsedEventData.length === 0) {
                 alert('Please load events first');
@@ -346,9 +338,7 @@
                 const result = await response.json();
                 if (result.error) {
                     if (result.needs_auth) {
-                        const authResponse = await fetch(`${baseUrl}/authorize`);
-                        const authData = await authResponse.json();
-                        window.open(authData.auth_url, '_blank');
+                        await handleAuth();
                         document.getElementById('parsedEvents').innerHTML = 
                             '<div class="text-blue-600">Please authorize the application in the new window and then try creating events again.</div>';
                         return;
