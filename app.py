@@ -51,21 +51,36 @@ def authorize():
     flow = create_flow()
     authorization_url, state = flow.authorization_url(
         access_type='offline',
-        include_granted_scopes='true'
+        include_granted_scopes='true',
+        prompt='consent'  # Force consent screen to get refresh token
     )
     session['state'] = state
     return jsonify({"auth_url": authorization_url})
 
 @app.route('/oauth2callback')
 def oauth2callback():
-    flow = create_flow()
-    flow.fetch_token(authorization_response=request.url)
-    credentials = flow.credentials
-    
-    with open('token.json', 'w') as token:
-        token.write(credentials.to_json())
-    
-    return 'Authorization successful! You can close this window and return to the application.'
+    try:
+        app.logger.info("Starting OAuth callback...")
+        flow = create_flow()
+        flow.fetch_token(authorization_response=request.url)
+        credentials = flow.credentials
+        
+        app.logger.info("Got credentials, checking refresh token...")
+        if not hasattr(credentials, 'refresh_token'):
+            app.logger.error("No refresh token in credentials!")
+        else:
+            app.logger.info("Refresh token present")
+        
+        app.logger.info("Saving credentials to token.json...")
+        with open('token.json', 'w') as token:
+            token.write(credentials.to_json())
+        
+        return 'Authorization successful! You can close this window and return to the application.'
+    except Exception as e:
+        app.logger.error(f"Error in OAuth callback: {str(e)}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        return f'Authorization failed: {str(e)}'
 
 def get_credentials():
     creds = None
