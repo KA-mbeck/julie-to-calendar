@@ -36,6 +36,8 @@ if GOOGLE_CREDENTIALS:
 
 # Get the base URL from environment or default to localhost
 BASE_URL = os.environ.get('RAILWAY_STATIC_URL', 'http://localhost:5000')
+if BASE_URL and not BASE_URL.startswith(('http://', 'https://')):
+    BASE_URL = 'https://' + BASE_URL
 
 def create_flow():
     return Flow.from_client_secrets_file(
