@@ -17,9 +17,15 @@ from flask_session import Session
 
 app = Flask(__name__, static_folder='static')
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', secrets.token_hex(32))
+
 # Configure session to use filesystem
 app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_FILE_DIR'] = os.path.join(os.getcwd(), 'flask_session')
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(minutes=60)
+
+# Ensure session directory exists
+os.makedirs(app.config['SESSION_FILE_DIR'], exist_ok=True)
+
 Session(app)  # Initialize Flask-Session
 CORS(app)
 
