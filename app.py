@@ -215,11 +215,10 @@ def parse_events_from_csv(selected_name):
                 
                 # Create event summary with room if available
                 summary = row['Session/Title/Event Name']
-                if row['Meeting Room'].strip():
-                    summary += f" (Room: {row['Meeting Room']})"
                 
                 event = {
                     "summary": summary,
+                    "location": row['Meeting Room'].strip(),  # This will be empty string if no room
                     "start": {
                         "dateTime": start_datetime.strftime("%Y-%m-%dT%H:%M:%S"),
                         "timeZone": "America/New_York"
