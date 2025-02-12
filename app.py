@@ -338,6 +338,62 @@ def create_calendar_events():
         app.logger.error(f"Error creating events: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/download-calendar-csv', methods=['POST'])
+def download_calendar_csv():
+    try:
+        data = request.get_json()
+        selected_name = data.get('name')
+        if not selected_name:
+            return jsonify({'error': 'No name selected'}), 400
+
+        events = parse_events_from_csv(selected_name)
+        if not events:
+            return jsonify({'error': 'No events found'}), 404
+
+        # Create CSV content for Google Calendar
+        csv_data = [['Subject', 'Start Date', 'Start Time', 'End Date', 'End Time', 'Description', 'Location']]
+        
+        for event in events:
+            start = parser.parse(event['start']['dateTime'])
+            end = parser.parse(event['end']['dateTime'])
+            
+            csv_data.append([
+                event['summary'],
+                start.strftime('%m/%d/%Y'),
+                start.strftime('%I:%M %p'),
+                end.strftime('%m/%d/%Y'),
+                end.strftime('%I:%M %p'),
+                event.get('description', ''),
+                event.get('location', '')
+            ])
+
+        # Create a temporary file
+        temp_csv = 'temp_calendar.csv'
+        with open(temp_csv, 'w', newline='') as f:
+            import csv
+            writer = csv.writer(f)
+            writer.writerows(csv_data)
+
+        # Send the file
+        response = send_from_directory(
+            os.getcwd(),
+            'temp_calendar.csv',
+            as_attachment=True,
+            download_name=f'{selected_name}_calendar_events.csv'
+        )
+        
+        # Clean up after sending
+        @response.call_on_close
+        def cleanup():
+            if os.path.exists(temp_csv):
+                os.remove(temp_csv)
+                
+        return response
+
+    except Exception as e:
+        app.logger.error(f"Error generating CSV: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/')
 def index():
     return send_from_directory(app.static_folder, 'index.html')
