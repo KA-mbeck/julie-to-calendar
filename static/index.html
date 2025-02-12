@@ -49,53 +49,62 @@
             <div id="calendarSection" class="border-t pt-4 mt-4" style="display: none;">
                 <h2 class="text-lg font-semibold mb-4">Choose Calendar</h2>
                 
-                <!-- Existing Calendar Selection -->
-                <div class="mb-4">
-                    <label for="calendarSelect" class="block text-sm font-medium text-gray-700 mb-2">
-                        Select existing calendar:
-                    </label>
-                    <select 
-                        id="calendarSelect" 
-                        class="w-full p-2 border rounded-md mb-2">
-                        <option value="">Select a calendar...</option>
-                    </select>
-                </div>
-
-                <!-- Create New Calendar -->
-                <div class="mb-4">
-                    <div class="flex items-center">
-                        <hr class="flex-grow border-gray-300">
-                        <span class="px-3 text-gray-500 text-sm">OR</span>
-                        <hr class="flex-grow border-gray-300">
-                    </div>
-                </div>
-
-                <div class="mb-4">
-                    <label for="newCalendarName" class="block text-sm font-medium text-gray-700 mb-2">
-                        Create new calendar:
-                    </label>
-                    <div class="flex gap-2">
-                        <input 
-                            type="text" 
-                            id="newCalendarName" 
-                            placeholder="Enter calendar name"
-                            class="flex-grow p-2 border rounded-md">
-                        <button 
-                            onclick="createNewCalendar()"
-                            class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed">
-                            Create
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Create Events Button -->
                 <button 
-                    id="createButton"
-                    onclick="createEvents()" 
-                    class="w-full bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200">
-                    <span class="normal-text">Create Calendar Events</span>
-                    <span class="loading-text hidden">Creating Events...</span>
+                    id="connectButton"
+                    onclick="handleAuth()" 
+                    class="w-full bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 mb-4">
+                    Connect to KA Google Calendar
                 </button>
+
+                <div id="calendarOptions" style="display: none;">
+                    <!-- Existing Calendar Selection -->
+                    <div class="mb-4">
+                        <label for="calendarSelect" class="block text-sm font-medium text-gray-700 mb-2">
+                            Select existing calendar:
+                        </label>
+                        <select 
+                            id="calendarSelect" 
+                            class="w-full p-2 border rounded-md mb-2">
+                            <option value="">Select a calendar...</option>
+                        </select>
+                    </div>
+
+                    <!-- Create New Calendar -->
+                    <div class="mb-4">
+                        <div class="flex items-center">
+                            <hr class="flex-grow border-gray-300">
+                            <span class="px-3 text-gray-500 text-sm">OR</span>
+                            <hr class="flex-grow border-gray-300">
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="newCalendarName" class="block text-sm font-medium text-gray-700 mb-2">
+                            Create new calendar:
+                        </label>
+                        <div class="flex gap-2">
+                            <input 
+                                type="text" 
+                                id="newCalendarName" 
+                                placeholder="Enter calendar name"
+                                class="flex-grow p-2 border rounded-md">
+                            <button 
+                                onclick="createNewCalendar()"
+                                class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                                Create
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Create Events Button -->
+                    <button 
+                        id="createButton"
+                        onclick="createEvents()" 
+                        class="w-full bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200">
+                        <span class="normal-text">Create Calendar Events</span>
+                        <span class="loading-text hidden">Creating Events...</span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -114,50 +123,36 @@
         window.addEventListener('load', loadNames);
 
         async function handleAuth() {
-            if (authWindowOpen) return;  // Prevent multiple auth windows
-            
-            try {
-                const authResponse = await fetch(`${baseUrl}/authorize`);
-                const authData = await authResponse.json();
-                authWindowOpen = true;
-                
-                // Calculate centered position for popup
-                const width = 600;
-                const height = 700;
-                const left = (window.screen.width - width) / 2;
-                const top = (window.screen.height - height) / 2;
-                
-                const authWindow = window.open(
-                    authData.auth_url,
-                    'OAuth2',
-                    `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no`
-                );
-                
-                // Check if window was blocked
-                if (!authWindow) {
-                    authWindowOpen = false;
-                    alert('Please allow popups for this site and try again.');
-                    return;
-                }
+            if (authWindowOpen) {
+                alert('Authorization window is already open');
+                return;
+            }
 
-                // Poll for window close
-                const checkClosed = setInterval(async () => {
+            try {
+                const response = await fetch(`${baseUrl}/authorize`);
+                const data = await response.json();
+                
+                // Open the authorization URL in a new window
+                const authWindow = window.open(data.auth_url, 'googleAuth', 'width=600,height=600');
+                authWindowOpen = true;
+
+                // Check periodically if the window is closed
+                const checkWindow = setInterval(async () => {
                     if (authWindow.closed) {
-                        clearInterval(checkClosed);
+                        clearInterval(checkWindow);
                         authWindowOpen = false;
-                        // Try loading calendars after auth window closes
+                        
+                        // Show calendar options and load calendars
+                        document.getElementById('calendarOptions').style.display = 'block';
+                        document.getElementById('connectButton').style.display = 'none';
                         await loadCalendars();
                     }
                 }, 500);
 
-                // Backup timeout to reset flag
-                setTimeout(() => {
-                    clearInterval(checkClosed);
-                    authWindowOpen = false;
-                }, 300000); // 5 minutes
             } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to start authorization process');
                 authWindowOpen = false;
-                console.error('Auth error:', error);
             }
         }
 
@@ -166,36 +161,26 @@
                 const response = await fetch(`${baseUrl}/get-calendars`);
                 const data = await response.json();
                 
-                if (data.error) {
-                    if (data.needs_auth && !authWindowOpen) {
-                        await handleAuth();
-                        return;
-                    }
-                    throw new Error(data.error);
-                }
+                // Update the calendar select dropdown
+                const select = document.getElementById('calendarSelect');
+                select.innerHTML = '<option value="">Select a calendar...</option>';
                 
-                // Clear existing options except the first one
-                while (calendarSelect.options.length > 1) {
-                    calendarSelect.remove(1);
-                }
-                
-                // Add calendars to dropdown
                 data.forEach(calendar => {
                     const option = document.createElement('option');
                     option.value = calendar.id;
-                    option.textContent = calendar.summary + (calendar.primary ? ' (Primary)' : '');
-                    calendarSelect.appendChild(option);
+                    option.textContent = calendar.summary;
+                    select.appendChild(option);
                 });
-
-                // Show calendar section if we have events
+                
+                // Show calendar options if we have events
                 if (parsedEventData) {
-                    document.getElementById('calendarSection').style.display = 'block';
+                    document.getElementById('calendarOptions').style.display = 'block';
                 }
             } catch (error) {
                 console.error('Error loading calendars:', error);
-                if (!error.message.includes('Not authorized')) {
-                    alert('Error loading calendars. Please try again.');
-                }
+                // If unauthorized, keep the connect button visible
+                document.getElementById('connectButton').style.display = 'block';
+                document.getElementById('calendarOptions').style.display = 'none';
             }
         }
 
@@ -250,43 +235,49 @@
         }
 
         async function parseEvents() {
-            const selectedName = nameSelect.value;
-            if (!selectedName) {
+            if (!nameSelect.value) {
                 alert('Please select a name first');
                 return;
             }
 
             setButtonLoading(parseButton, true);
-            document.getElementById('parsedEvents').innerHTML = '<div class="text-gray-600">Loading events...</div>';
-            
             try {
-                const response = await fetch(`${baseUrl}/parse`, {
+                const response = await fetch('/parse-events', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ selected_name: selectedName }),
+                    body: JSON.stringify({
+                        name: nameSelect.value
+                    })
                 });
-                
+
                 const data = await response.json();
-                parsedEventData = data;
-                
-                if (data.length === 0) {
-                    document.getElementById('parsedEvents').innerHTML = 
-                        '<div class="text-gray-600">No events found for this person</div>';
-                    document.getElementById('calendarSection').style.display = 'none';
-                } else {
-                    document.getElementById('parsedEvents').innerHTML = 
-                        data.map(formatEvent).join('');
+                if (response.ok) {
+                    parsedEventData = data;
+                    const eventsDiv = document.getElementById('parsedEvents');
+                    eventsDiv.innerHTML = data.map(formatEvent).join('<br>');
                     document.getElementById('calendarSection').style.display = 'block';
-                    // Load calendars when events are found
-                    await loadCalendars();
-                    downloadButton.style.display = 'block';  // Show download button
+                    downloadButton.style.display = 'block';
+                    
+                    // Try to load calendars, but don't auto-trigger OAuth
+                    try {
+                        const calendarResponse = await fetch(`${baseUrl}/get-calendars`);
+                        if (calendarResponse.ok) {
+                            document.getElementById('calendarOptions').style.display = 'block';
+                            document.getElementById('connectButton').style.display = 'none';
+                            await loadCalendars();
+                        }
+                    } catch (error) {
+                        // If not authorized, the connect button will remain visible
+                        console.log('Not connected to Google Calendar yet');
+                    }
+                } else {
+                    alert(data.error || 'Failed to parse events');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                document.getElementById('parsedEvents').innerHTML = 
-                    `<div class="text-red-600">Error loading events: ${error.message}</div>`;
+                alert('An error occurred while parsing events');
             } finally {
                 setButtonLoading(parseButton, false);
             }
