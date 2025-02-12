@@ -242,7 +242,7 @@
 
             setButtonLoading(parseButton, true);
             try {
-                const response = await fetch('/parse-events', {
+                const response = await fetch(`${baseUrl}/parse`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
